@@ -1,0 +1,207 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+__author__ = "Igor R"
+
+import argparse, re, gzip, os, sys
+from collections import OrderedDict
+from datetime import datetime
+from datetime import timedelta
+
+logdate = ''
+startdate = ''
+enddate = ''
+logdict = {}
+
+def dir_path(path):
+    if os.path.isdir(path):
+        return path
+    else:
+        raise argparse.ArgumentTypeError('Readable_dir:{} is not a valid path'.format(path))
+
+parser = argparse.ArgumentParser()
+group = parser.add_mutually_exclusive_group()
+group.add_argument('-p','--path', help= 'Full path to ethtool log files. Default: Current working directory', type=dir_path, default=os.getcwd())
+group.add_argument('-f', '--file', help='Log file to parse. If not set, all ethtool logs in the current working directory will be checked', type=argparse.FileType('r'), nargs='?')
+parser.add_argument('-c', '--counters', help='Comma separated list of counters to parse (e.g. rx_crc_errors). Default: rx_crc_errors,rx_pause_frames,tx_pause_frames', type=str,  default='rx_crc_errors,rx_pause_frames,tx_pause_frames')
+parser.add_argument('-i', '--interface', help='Interface to parse (e.g. eth0). Default: eth0', type=str, default='eth0')
+parser.add_argument('-s', '--start', help='Parsing start date (e.g. 2020-02-25 07:35 or 2020-02-25)', type=str)
+parser.add_argument('-e', '--end', help='Parsing end date (e.g. 2020-02-25 07:45 or 2020-02-25)', type=str)
+args = parser.parse_args()
+
+
+counters_list = [str(item) for item in args.counters.split(',')]
+
+interface = args.interface
+
+if args.start is not None:
+    try:
+        startdate = datetime.strptime(args.start, '%Y-%m-%d %H:%M')
+    except:
+        startdate = datetime.strptime(args.start, '%Y-%m-%d')
+if args.end is not None:
+    try:
+        enddate = datetime.strptime(args.end, '%Y-%m-%d %H:%M')
+    except:
+        enddate = datetime.strptime(args.end, '%Y-%m-%d') + timedelta(hours=23,minutes=59)
+
+
+def printProgressBar (iteration, total, prefix = '', suffix = '', decimals = 1, length = 100, fill = '▓', printEnd = "\r"):
+    """
+    Call in a loop to create terminal progress bar
+    @params:
+        iteration   - Required  : current iteration (Int)
+        total       - Required  : total iterations (Int)
+        prefix      - Optional  : prefix string (Str)
+        suffix      - Optional  : suffix string (Str)
+        decimals    - Optional  : positive number of decimals in percent complete (Int)
+        length      - Optional  : character length of bar (Int)
+        fill        - Optional  : bar fill character (Str)
+        printEnd    - Optional  : end character (e.g. "\r", "\r\n") (Str)
+    """
+    percent = ("{0:." + str(decimals) + "f}").format(100 * (iteration / float(total)))
+    filledLength = int(length * iteration // total)
+    bar = fill * filledLength + '-' * (length - filledLength)
+    print('\r%s |%s| %s%% %s' % (prefix, bar, percent, suffix), end = printEnd)
+    # Print New Line on Complete
+    if iteration == total:
+        print()
+
+
+def create_logdict(log):
+    log_interface = False
+    line = ''
+    for line_byte in log:
+#        print(line)
+#        print('Type line: ', type(line))
+        try:
+            line = str(line_byte, 'utf-8')
+        except:
+            line = line_byte
+        if bool(re.search('\d\d\d\d-\d\d-\d\d \d\d:\d\d', line)) and (line not in logdict):
+            try:
+                logdate = datetime.strptime(line.strip(), '%Y-%m-%d %H:%M')
+            except:
+                logdate = datetime.strptime(line.strip(), '%Y-%m-%d')
+            logdict[logdate] = {}
+        else:
+            if 'ethtool -S ' + interface in line:
+                log_interface = True
+            elif 'ethtool -S' in line and interface not in line:
+                log_interface = False
+            if 'ethtool -S' not in line and (logdate != '') and log_interface == True:
+                for counter in counters_list:
+                    regex = r'^(' + counter + '): (\d+)'
+                    match = re.search(regex, line.strip())
+                    if match:
+                        logdict[logdate][match.group(1)] = match.group(2)
+
+def print_dates():
+    if startdate != '':
+        print('Start date set: ' + startdate.strftime('%Y-%m-%d %H:%M'))
+    else:
+        print('Start date set: ' + 'None')
+    if enddate != '':
+        print('End date set: ' + enddate.strftime('%Y-%m-%d %H:%M'))
+    else:
+        print('End date set: ' + 'None')
+    print('')
+
+def filter_logdict():
+    for logentry in logdict.copy():
+        if startdate != '' and  logentry < startdate:
+            del logdict[logentry]
+        elif enddate != '' and logentry > enddate:
+             del logdict[logentry]
+        elif startdate == '' and logentry != min(logdict) and logentry != max(logdict):
+            del logdict[logentry]
+        elif enddate == '' and logentry != min(logdict) and logentry != max(logdict):
+            del logdict[logentry]
+
+def print_logdict():
+    prev_logentry = {}
+    logentry_count = 0
+    omitted_count = 0
+    for logentry in OrderedDict(sorted(logdict.items(), key=lambda t: t[0])):
+        if logentry_count == 0 or logentry_count == len(logdict) - 1:
+            if omitted_count != 0:
+                print('.....The previous output repeated ' + str(omitted_count) + ' times.....')
+                print('')
+            print(logentry.strftime('%Y-%m-%d %H:%M'))
+            for counterkey, countervalue in logdict[logentry].items():
+                print('   {}: {}'.format(counterkey, countervalue))
+            print('')
+        else:
+            if logdict[logentry] != prev_logentry:
+                if omitted_count != 0:
+                    print('.....The previous output repeated ' + str(omitted_count) + ' times.....')
+                    print('')
+                print(logentry.strftime('%Y-%m-%d %H:%M') + ' *')
+                for counterkey, countervalue in logdict[logentry].items():
+                    print('   {}: {}'.format(counterkey, countervalue))
+                print('')
+                omitted_count = 0
+            else:
+                omitted_count += 1
+        logentry_count += 1
+        prev_logentry = logdict[logentry]
+
+
+
+if not args.file:
+    total = 0
+    for file in os.listdir(args.path):
+        if 'sf-ethtool-history' in file:
+            total += 1
+    count = 1
+    if total != 0:
+        os.chdir(args.path)
+        print('\nImporting {} ethtool log files...'.format(total))
+        printProgressBar(0, total)
+        for file in os.listdir(args.path):
+            if 'sf-ethtool-history' in file and 'gz' not in file:
+                with open(file) as f:
+                    log = f.readlines()
+                    create_logdict(log)
+                printProgressBar(count, total)
+                count += 1
+
+            if 'sf-ethtool-history' in file and 'gz' in file:
+                with gzip.open(file) as f:
+                    log = f.readlines()
+                    create_logdict(log)
+                printProgressBar(count, total)
+                count += 1
+
+        print('')
+        print('Oldest log entry found: ' + min(logdict).strftime('%Y-%m-%d %H:%M'))
+        print('Newest log entry found: ' + max(logdict).strftime('%Y-%m-%d %H:%M'))
+
+        print_dates()
+        filter_logdict()
+        print_logdict()
+    else:
+        print('\nParsing error: ethtool-history log files not found in {}\n'.format(args.path))
+
+if args.file and 'sf-ethtool-history' in args.file.name:
+    file = os.path.realpath(args.file.name)
+
+    if 'gz' not in file:
+        with open(file) as f:
+            log = f.readlines()
+            create_logdict(log)
+
+    if 'gz' in file:
+        with gzip.open(file) as f:
+            log = f.readlines()
+            create_logdict(log)
+
+    print('')
+    print('Oldest log entry found: ' + min(logdict).strftime('%Y-%m-%d %H:%M'))
+    print('Newest log entry found: ' + max(logdict).strftime('%Y-%m-%d %H:%M'))
+
+    print_dates()
+    filter_logdict()
+    print_logdict()
+elif args.file and 'sf-ethtool-history' not in args.file.name:
+    print('\nParsing error: Incorrect ethtool-history log file\n')
