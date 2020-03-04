@@ -76,6 +76,7 @@ def print_dates():
         print('End date set: ' + 'None')
     print('')
 
+
 def filter_logdict():
     for logentry in logdict.copy():
         if startdate != '' and  logentry < startdate:
@@ -147,6 +148,13 @@ if not args.file:
 
 
         print_dates()
+
+        if (startdate == '') != (enddate == ''):
+            if startdate == '':
+                startdate = min(logdict)
+            if enddate == '':
+                enddate = max(logdict)
+
         filter_logdict()
         print_logdict()
     else:
@@ -175,6 +183,13 @@ if args.file and 'sf-ethtool-history' in args.file.name:
 
 
     print_dates()
+
+    if (startdate == '') != (enddate == ''):
+        if startdate == '':
+            startdate = min(logdict)
+        if enddate == '':
+            enddate = max(logdict)
+
     filter_logdict()
     print_logdict()
 elif args.file and 'sf-ethtool-history' not in args.file.name:

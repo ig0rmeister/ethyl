@@ -173,6 +173,13 @@ if not args.file:
         print('Interface to parse: {}'.format(interface))
 
         print_dates()
+
+        if (startdate == '') != (enddate == ''):
+            if startdate == '':
+                startdate = min(logdict)
+            if enddate == '':
+                enddate = max(logdict)
+
         filter_logdict()
         print_logdict()
     else:
@@ -198,6 +205,13 @@ if args.file and 'sf-ethtool-history' in args.file.name:
     print('Interface to parse: {}'.format(interface))
 
     print_dates()
+
+    if (startdate == '') != (enddate == ''):
+        if startdate == '':
+            startdate = min(logdict)
+        if enddate == '':
+            enddate = max(logdict)
+
     filter_logdict()
     print_logdict()
 elif args.file and 'sf-ethtool-history' not in args.file.name:
