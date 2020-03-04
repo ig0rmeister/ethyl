@@ -29,7 +29,6 @@ parser.add_argument('-s', '--start', help='Parsing start date (e.g. 2020-02-25 0
 parser.add_argument('-e', '--end', help='Parsing end date (e.g. 2020-02-25 07:45 or 2020-02-25)', type=str)
 args = parser.parse_args()
 
-
 counters_list = [str(item) for item in args.counters.split(',')]
 
 interface = args.interface
@@ -44,7 +43,6 @@ if args.end is not None:
         enddate = datetime.strptime(args.end, '%Y-%m-%d %H:%M')
     except:
         enddate = datetime.strptime(args.end, '%Y-%m-%d') + timedelta(hours=23,minutes=59)
-
 
 def printProgressBar (iteration, total, prefix = '', suffix = '', decimals = 1, length = 100, fill = '▓', printEnd = "\r"):
     """
@@ -67,13 +65,10 @@ def printProgressBar (iteration, total, prefix = '', suffix = '', decimals = 1, 
     if iteration == total:
         print()
 
-
 def create_logdict(log):
     log_interface = False
     line = ''
     for line_byte in log:
-#        print(line)
-#        print('Type line: ', type(line))
         try:
             line = str(line_byte, 'utf-8')
         except:
@@ -145,8 +140,6 @@ def print_logdict():
                 omitted_count += 1
         logentry_count += 1
         prev_logentry = logdict[logentry]
-
-
 
 if not args.file:
     total = 0

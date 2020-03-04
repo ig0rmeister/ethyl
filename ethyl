@@ -47,8 +47,6 @@ if args.end is not None:
 def create_logdict(log):
     log_interface = False
     for line in log:
-        #:print(line)
-        #print('Type line: ', type(line))
         if bool(re.search('\d\d\d\d-\d\d-\d\d \d\d:\d\d', line)) and (line not in logdict):
             try:
                 logdate = datetime.strptime(line.strip(), '%Y-%m-%d %H:%M')
@@ -77,7 +75,6 @@ def print_dates():
     else:
         print('End date set: ' + 'None')
     print('')
-
 
 def filter_logdict():
     for logentry in logdict.copy():
@@ -117,8 +114,6 @@ def print_logdict():
                 omitted_count += 1
         logentry_count += 1
         prev_logentry = logdict[logentry]
-
-
 
 if not args.file:
     total = 0
