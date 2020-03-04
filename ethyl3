@@ -68,15 +68,14 @@ def printProgressBar (iteration, total, prefix = '', suffix = '', decimals = 1, 
         print()
 
 class LogEntry:
-    def __init__(self, date, interface, counter, value):
-        self.date = date
+    def __init__(self, interface, counter, value):
         self.interface = interface
         self.counter = counter
         self.value = value
 
-log_list = []
+log_dict = {}
 
-def populate_log_list(log):
+def populate_log_dict(log):
     for line_byte in log:
         try:
             line = str(line_byte, 'utf-8')
@@ -84,43 +83,19 @@ def populate_log_list(log):
             line = line_byte
         if bool(re.search('\d\d\d\d-\d\d-\d\d \d\d:\d\d', line)):
             current_logdate = datetime.strptime(line.strip(), '%Y-%m-%d %H:%M')
+            log_dict[current_logdate] = []
             #print('Logdate:', logdate)
-        match = re.search(r'^ethtool -S ({})'.format(interfaces.replace(',', '|')), line.strip())
+        match = re.search(r'^ethtool -S (.+):', line.strip())
         if match:
             #print('Current_interface = ', match.group(1))
             current_interface = match.group(1)
         match = re.search(r'^({}): (\d+)'.format(counters.replace(',', '|')), line.strip())
-        if match:
+        if match and current_interface in interfaces:
             #print('Found counter = ', match.group(1), 'with value', match.group(2) )
+            #print('interfaces', interfaces)
             #print('Adding:{} {} {} {}'.format(current_logdate, current_interface, match.group(1), match.group(2)))
-            log_list.append(LogEntry(current_logdate, current_interface, match.group(1), match.group(2)))
+            log_dict[current_logdate].append(LogEntry(current_interface, match.group(1), match.group(2)))
 
-
-# def create_logdict(log):
-#     log_interface = False
-#     line = ''
-#     for line_byte in log:
-#         try:
-#             line = str(line_byte, 'utf-8')
-#         except:
-#             line = line_byte
-#         if bool(re.search('\d\d\d\d-\d\d-\d\d \d\d:\d\d', line)) and (line not in logdict):
-#             try:
-#                 logdate = datetime.strptime(line.strip(), '%Y-%m-%d %H:%M')
-#             except:
-#                 logdate = datetime.strptime(line.strip(), '%Y-%m-%d')
-#             logdict[logdate] = {}
-#         else:
-#             if 'ethtool -S ' + interface in line:
-#                 log_interface = True
-#             elif 'ethtool -S' in line and interface not in line:
-#                 log_interface = False
-#             if 'ethtool -S' not in line and (logdate != '') and log_interface == True:
-#                 for counter in counters_list:
-#                     regex = r'^(' + counter + '): (\d+)'
-#                     match = re.search(regex, line.strip())
-#                     if match:
-#                         logdict[logdate][match.group(1)] = match.group(2)
 
 def print_dates():
     if startdate != '':
@@ -133,6 +108,7 @@ def print_dates():
         print('End date set: ' + 'None')
     print('')
 
+
 def filter_logdict():
     for logentry in logdict.copy():
         if startdate != '' and  logentry < startdate:
@@ -144,33 +120,48 @@ def filter_logdict():
         elif enddate == '' and logentry != min(logdict) and logentry != max(logdict):
             del logdict[logentry]
 
-def print_logdict():
-    prev_logentry = {}
-    logentry_count = 0
-    omitted_count = 0
-    for logentry in OrderedDict(sorted(logdict.items(), key=lambda t: t[0])):
-        if logentry_count == 0 or logentry_count == len(logdict) - 1:
-            if omitted_count != 0:
-                print('.....The previous output repeated ' + str(omitted_count) + ' times.....')
-                print('')
-            print(logentry.strftime('%Y-%m-%d %H:%M'))
-            for counterkey, countervalue in logdict[logentry].items():
-                print('   {}: {}'.format(counterkey, countervalue))
-            print('')
-        else:
-            if logdict[logentry] != prev_logentry:
-                if omitted_count != 0:
-                    print('.....The previous output repeated ' + str(omitted_count) + ' times.....')
-                    print('')
-                print(logentry.strftime('%Y-%m-%d %H:%M') + ' *')
-                for counterkey, countervalue in logdict[logentry].items():
-                    print('   {}: {}'.format(counterkey, countervalue))
-                print('')
-                omitted_count = 0
-            else:
-                omitted_count += 1
-        logentry_count += 1
-        prev_logentry = logdict[logentry]
+
+def print_log_dict():
+    previous_log_entry = ''
+    for log_entry_date, ethtool_entry_list in sorted(log_dict.items(), key=lambda t: t[0]):
+        if previous_log_entry == '' or previous_log_entry != previous_log_entry:
+            print('Key: ', log_entry_date)
+            for ethtool_entry in ethtool_entry_list:
+                print('Item:', ethtool_entry.interface, ethtool_entry.counter, ethtool_entry.value)
+            previous_log_entry = ethtool_entry_list
+
+
+#def print_log_list():
+#    for item in log_list:
+
+
+# def print_logdict():
+#     prev_logentry = {}
+#     logentry_count = 0
+#     omitted_count = 0
+#     for logentry in OrderedDict(sorted(logdict.items(), key=lambda t: t[0])):
+#         if logentry_count == 0 or logentry_count == len(logdict) - 1:
+#             if omitted_count != 0:
+#                 print('.....The previous output repeated ' + str(omitted_count) + ' times.....')
+#                 print('')
+#             print(logentry.strftime('%Y-%m-%d %H:%M'))
+#             for counterkey, countervalue in logdict[logentry].items():
+#                 print('   {}: {}'.format(counterkey, countervalue))
+#             print('')
+#         else:
+#             if logdict[logentry] != prev_logentry:
+#                 if omitted_count != 0:
+#                     print('.....The previous output repeated ' + str(omitted_count) + ' times.....')
+#                     print('')
+#                 print(logentry.strftime('%Y-%m-%d %H:%M') + ' *')
+#                 for counterkey, countervalue in logdict[logentry].items():
+#                     print('   {}: {}'.format(counterkey, countervalue))
+#                 print('')
+#                 omitted_count = 0
+#             else:
+#                 omitted_count += 1
+#         logentry_count += 1
+#         prev_logentry = logdict[logentry]
 
 # if not args.file:
 #     total = 0
@@ -222,7 +213,7 @@ if args.file and 'sf-ethtool-history' in args.file.name:
     if 'gz' not in file:
         with open(file) as f:
             log = f.readlines()
-            populate_log_list(log)
+            populate_log_dict(log)
 
     if 'gz' in file:
         with gzip.open(file) as f:
@@ -244,10 +235,6 @@ if args.file and 'sf-ethtool-history' in args.file.name:
 #            enddate = max(logdict)
 
     #filter_logdict()
-    #print_logdict()
+    print_log_dict()
 elif args.file and 'sf-ethtool-history' not in args.file.name:
     print('\nParsing error: Incorrect ethtool-history log file\n')
-
-
-for x in log_list:
-    print(x.date, x.interface, x.counter, x.value)
