@@ -216,3 +216,18 @@ if args.file and 'sf-ethtool-history' in args.file.name:
     print_logdict()
 elif args.file and 'sf-ethtool-history' not in args.file.name:
     print('\nParsing error: Incorrect ethtool-history log file\n')
+
+
+class LogEntry:
+    def __init__(self, date, interface, counter, value):
+        self.date = date
+        self.interface = interface
+        self.counter = counter
+        self.value = value
+
+log_list = []
+
+log_list.append(LogEntry('2018', 'eth0', 'rx', '3'))
+log_list.append(LogEntry('2019', 'eth0', 'rx', '3'))
+
+print(log_list[1].date)
