@@ -169,6 +169,8 @@ if not args.file:
         print('')
         print('Oldest log entry found: ' + min(logdict).strftime('%Y-%m-%d %H:%M'))
         print('Newest log entry found: ' + max(logdict).strftime('%Y-%m-%d %H:%M'))
+        print('Counters to parse: {}'.format(args.counters))
+        print('Interface to parse: {}'.format(interface))
 
         print_dates()
         filter_logdict()
@@ -192,6 +194,8 @@ if args.file and 'sf-ethtool-history' in args.file.name:
     print('')
     print('Oldest log entry found: ' + min(logdict).strftime('%Y-%m-%d %H:%M'))
     print('Newest log entry found: ' + max(logdict).strftime('%Y-%m-%d %H:%M'))
+    print('Counters to parse: {}'.format(args.counters))
+    print('Interface to parse: {}'.format(interface))
 
     print_dates()
     filter_logdict()
