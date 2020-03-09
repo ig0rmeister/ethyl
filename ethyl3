@@ -3,7 +3,7 @@
 
 __author__ = "Igor R"
 
-import argparse, re, gzip, os, sys
+import argparse, re, gzip, os, sys, io
 from collections import OrderedDict
 from datetime import datetime
 from datetime import timedelta
@@ -168,11 +168,13 @@ if not args.file:
                 count += 1
 
             if 'sf-ethtool-history' in file and 'gz' in file:
-                with gzip.open(file) as f:
+                with gzip.open(file, 'rb') as gz:
+                    f = io.BufferedReader(gz)
                     log = f.readlines()
                     populate_log_dict(log)
                 printProgressBar(count, total)
                 count += 1
+
 
         print_dates_and_arguments()
         print_log_dict()
@@ -189,9 +191,10 @@ if args.file and 'sf-ethtool-history' in args.file.name:
             populate_log_dict(log)
 
     if 'gz' in file:
-        with gzip.open(file) as f:
+        with gzip.open(file, 'rb') as gz:
+            f = io.BufferedReader(gz)
             log = f.readlines()
-            #create_logdict(log)
+            populate_log_dict(log)
 
     #filter_logdict()
     print_dates_and_arguments()
