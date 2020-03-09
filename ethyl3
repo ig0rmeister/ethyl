@@ -8,11 +8,6 @@ from collections import OrderedDict
 from datetime import datetime
 from datetime import timedelta
 
-logdate = ''
-startdate = ''
-enddate = ''
-logdict = {}
-
 def dir_path(path):
     if os.path.isdir(path):
         return path
@@ -29,22 +24,43 @@ parser.add_argument('-s', '--start', help='Parsing start date (e.g. 2020-02-25 0
 parser.add_argument('-e', '--end', help='Parsing end date (e.g. 2020-02-25 07:45 or 2020-02-25)', type=str)
 args = parser.parse_args()
 
-#counters_list = [str(item) for item in args.counters.split(',')]
-
-counters = args.counters
-interfaces = args.interfaces
-print('Interfaces type:', type(interfaces))
 
 if args.start is not None:
     try:
         startdate = datetime.strptime(args.start, '%Y-%m-%d %H:%M')
     except:
         startdate = datetime.strptime(args.start, '%Y-%m-%d')
+else:
+    startdate = ''
+
 if args.end is not None:
     try:
         enddate = datetime.strptime(args.end, '%Y-%m-%d %H:%M')
     except:
         enddate = datetime.strptime(args.end, '%Y-%m-%d') + timedelta(hours=23,minutes=59)
+else:
+    enddate = ''
+
+
+class LogEntry:
+    def __init__(self, interface, counter, value):
+        self.interface = interface
+        self.counter = counter
+        self.value = value
+
+    def __eq__(self, other):
+        if not isinstance(other, LogEntry):
+            # don't attempt to compare against unrelated types
+            return NotImplemented
+
+        return self.interface == other.interface and self.counter == other.counter and self.value == other.value
+
+
+#counters_list = [str(item) for item in args.counters.split(',')]
+log_dict = {}
+counters = args.counters
+interfaces = args.interfaces
+
 
 def printProgressBar (iteration, total, prefix = '', suffix = '', decimals = 1, length = 100, fill = '▓', printEnd = "\r"):
     """
@@ -67,19 +83,6 @@ def printProgressBar (iteration, total, prefix = '', suffix = '', decimals = 1, 
     if iteration == total:
         print()
 
-class LogEntry:
-    def __init__(self, interface, counter, value):
-        self.interface = interface
-        self.counter = counter
-        self.value = value
-
-    def __eq__(self, other):
-        if not isinstance(other, LogEntry):
-            # don't attempt to compare against unrelated types
-            return NotImplemented
-
-        return self.interface == other.interface and self.counter == other.counter and self.value == other.value
-log_dict = {}
 
 def populate_log_dict(log):
     for line_byte in log:
@@ -90,65 +93,60 @@ def populate_log_dict(log):
         if bool(re.search('\d\d\d\d-\d\d-\d\d \d\d:\d\d', line)):
             current_logdate = datetime.strptime(line.strip(), '%Y-%m-%d %H:%M')
             log_dict[current_logdate] = []
-            #print('Logdate:', logdate)
         match = re.search(r'^ethtool -S (.+):', line.strip())
         if match:
-            #print('Current_interface = ', match.group(1))
             current_interface = match.group(1)
         match = re.search(r'^({}): (\d+)'.format(counters.replace(',', '|')), line.strip())
         if match and current_interface in interfaces:
-            #print('Found counter = ', match.group(1), 'with value', match.group(2) )
-            #print('interfaces', interfaces)
-            #print('Adding:{} {} {} {}'.format(current_logdate, current_interface, match.group(1), match.group(2)))
             log_dict[current_logdate].append(LogEntry(current_interface, match.group(1), match.group(2)))
 
-def print_dates_and_arguments():
-    if startdate != '':
-        print('Start date set: ' + startdate.strftime('%Y-%m-%d %H:%M'))
-    else:
-        print('Start date set: ' + 'None')
-    if enddate != '':
-        print('End date set: ' + enddate.strftime('%Y-%m-%d %H:%M'))
-    else:
-        print('End date set: ' + 'None')
-    print('Oldest log entry found: ' + min(logdict).strftime('%Y-%m-%d %H:%M'))
-    print('Newest log entry found: ' + max(logdict).strftime('%Y-%m-%d %H:%M'))
-    print('Counters to parse: {}'.format(args.counters))
-    print('Interface to parse: {}'.format(interface))
 
-def set_dates():
-    if (startdate == '') != (enddate == ''):
-       if startdate == '':
-           startdate = min(logdict)
-       if enddate == '':
-           enddate = max(logdict)
+def print_dates_and_arguments():
+    print('\nStart date set: {}'.format(startdate.strftime('%Y-%m-%d %H:%M') if startdate != '' else 'None'))
+    print('End date set {}'.format(enddate.strftime('%Y-%m-%d %H:%M') if enddate != '' else 'None'))
+    print('Counters to parse: {}'.format(args.counters))
+    print('Interface to parse: {}'.format(interfaces))
+    print('\nOldest log entry found: ' + min(log_dict).strftime('%Y-%m-%d %H:%M'))
+    print('Newest log entry found: ' + max(log_dict).strftime('%Y-%m-%d %H:%M'))
+
 
 
 def filter_logdict():
-    for logentry in logdict.copy():
-        if startdate != '' and  logentry < startdate:
-            del logdict[logentry]
-        elif enddate != '' and logentry > enddate:
-             del logdict[logentry]
-        elif startdate == '' and logentry != min(logdict) and logentry != max(logdict):
-            del logdict[logentry]
-        elif enddate == '' and logentry != min(logdict) and logentry != max(logdict):
-            del logdict[logentry]
+    if (startdate == '') != (enddate == ''):
+       if startdate == '':
+           startdate = min(log_dict)
+       if enddate == '':
+           enddate = max(log_dict)
+
+    for logentry in log_dict.copy():
+        if (startdate != '' and  logentry < startdate) or \
+           (enddate != '' and logentry > enddate) or \
+           (startdate == '' and logentry != min(log_dict) and logentry != max(log_dict)) or \
+           (enddate == '' and logentry != min(log_dict) and logentry != max(log_dict)):
+               del log_dict[logentry]
 
 
 def print_log_dict():
     prev_ethtool_entry_list = ''
-    skipped_entied = 0
+    prev_ethtool_entry_interface = ''
+    skipped_log_entries = 0
     for log_entry_date, ethtool_entry_list in sorted(log_dict.items(), key=lambda t: t[0]):
-        #print('Prev:', prev_ethtool_entry_list)
-        #print('Current:', ethtool_entry_list)
-        #print('Equal:', prev_ethtool_entry_list == ethtool_entry_list)
-        if (prev_ethtool_entry_list == '') or (prev_ethtool_entry_list != ethtool_entry_list):
-            print('\n{}'.format(log_entry_date))
+        if ethtool_entry_list == prev_ethtool_entry_list:
+            if log_entry_date == max(log_dict):
+                print('{}\n'.format('\n > Skipped: ' + str(skipped_log_entries) + ' repetetive entries\n' if skipped_log_entries != 0 else ''))
+            skipped_log_entries += 1
+        else:
+            if (prev_ethtool_entry_list == ''):
+                print('\n{}'.format(log_entry_date))
+            elif (ethtool_entry_list != prev_ethtool_entry_list):
+                print('{}\n{}'.format('\n > Skipped: ' + str(skipped_log_entries) + ' repetetive entries\n' if skipped_log_entries != 0 else '', log_entry_date))
+                skipped_log_entries = 0
             for ethtool_entry in ethtool_entry_list:
-                print(ethtool_entry.interface, ethtool_entry.counter, ethtool_entry.value)
-        prev_ethtool_entry_list = ethtool_entry_list
-
+                if (prev_ethtool_entry_interface == '') or (prev_ethtool_entry_interface != ethtool_entry.interface):
+                    print('\n   {}'.format(ethtool_entry.interface))
+                print('      {}: {}'.format(ethtool_entry.counter, ethtool_entry.value))
+                prev_ethtool_entry_interface = ethtool_entry.interface
+            prev_ethtool_entry_list = ethtool_entry_list
 
 
 if not args.file:
@@ -176,12 +174,10 @@ if not args.file:
                 printProgressBar(count, total)
                 count += 1
 
-
+        print_dates_and_arguments()
         print_log_dict()
     else:
         print('\nParsing error: ethtool-history log files not found in {}\n'.format(args.path))
-
-
 
 
 if args.file and 'sf-ethtool-history' in args.file.name:
@@ -198,6 +194,7 @@ if args.file and 'sf-ethtool-history' in args.file.name:
             #create_logdict(log)
 
     #filter_logdict()
+    print_dates_and_arguments()
     print_log_dict()
 elif args.file and 'sf-ethtool-history' not in args.file.name:
     print('\nParsing error: Incorrect ethtool-history log file\n')
