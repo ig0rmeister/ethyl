@@ -1,121 +1,129 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-__author__ = "Igor R."
+__author__ = "Igor R"
 
-import argparse, re, gzip, os, sys
-from collections import OrderedDict
+import argparse, re, gzip, os, sys, io
 from datetime import datetime
 from datetime import timedelta
 
-logdate = ''
-startdate = ''
-enddate = ''
-logdict = {}
-
+# Path validator for argparse
 def dir_path(path):
     if os.path.isdir(path):
         return path
     else:
-        raise argparse.ArgumentTypeError('Readable_dir:%s is not a valid path' % (path))
+        raise argparse.ArgumentTypeError('Readable_dir:{} is not a valid path'.format(path))
 
 parser = argparse.ArgumentParser()
 group = parser.add_mutually_exclusive_group()
 group.add_argument('-p','--path', help= 'Full path to ethtool log files. Default: Current working directory', type=dir_path, default=os.getcwd())
 group.add_argument('-f', '--file', help='Log file to parse. If not set, all ethtool logs in the current working directory will be checked', type=argparse.FileType('r'), nargs='?')
 parser.add_argument('-c', '--counters', help='Comma separated list of counters to parse (e.g. rx_crc_errors). Default: rx_crc_errors,rx_pause_frames,tx_pause_frames', type=str,  default='rx_crc_errors,rx_pause_frames,tx_pause_frames')
-parser.add_argument('-i', '--interface', help='Interface to parse (e.g. eth0). Default: eth0', type=str, default='eth0')
+parser.add_argument('-i', '--interfaces', help='Interfaces to parse (e.g. eth2,eth3). Default: eth0,eth1', type=str, default='eth0,eth1')
 parser.add_argument('-s', '--start', help='Parsing start date (e.g. 2020-02-25 07:35 or 2020-02-25)', type=str)
 parser.add_argument('-e', '--end', help='Parsing end date (e.g. 2020-02-25 07:45 or 2020-02-25)', type=str)
 args = parser.parse_args()
 
-counters_list = [str(item) for item in args.counters.split(',')]
-
-interface = args.interface
-
+# Parsing the start date (with or without time of the day set)
 if args.start is not None:
     try:
         startdate = datetime.strptime(args.start, '%Y-%m-%d %H:%M')
     except:
         startdate = datetime.strptime(args.start, '%Y-%m-%d')
+else:
+    startdate = ''
+
+# Parsing the end date (with or without time of the day set)
 if args.end is not None:
     try:
         enddate = datetime.strptime(args.end, '%Y-%m-%d %H:%M')
     except:
         enddate = datetime.strptime(args.end, '%Y-%m-%d') + timedelta(hours=23,minutes=59)
+else:
+    enddate = ''
 
-def create_logdict(log):
-    log_interface = False
-    for line in log:
-        if bool(re.search('\d\d\d\d-\d\d-\d\d \d\d:\d\d', line)) and (line not in logdict):
-            try:
-                logdate = datetime.strptime(line.strip(), '%Y-%m-%d %H:%M')
-            except:
-                logdate = datetime.strptime(line.strip(), '%Y-%m-%d')
-            logdict[logdate] = {}
+
+class LogEntry:
+    def __init__(self, interface, counter, value):
+        self.interface = interface
+        self.counter = counter
+        self.value = value
+
+    def __eq__(self, other):
+        if not isinstance(other, LogEntry):
+            return NotImplemented
+        return self.interface == other.interface and self.counter == other.counter and self.value == other.value
+
+
+log_dict = {}
+counters = args.counters
+interfaces = args.interfaces
+
+# Add log entries for specified interfaces to the log_dict
+def populate_log_dict(log):
+    for line_byte in log:
+        try:
+            line = str(line_byte, 'utf-8')
+        except:
+            line = line_byte
+        if bool(re.search('\d\d\d\d-\d\d-\d\d \d\d:\d\d', line)):
+            current_logdate = datetime.strptime(line.strip(), '%Y-%m-%d %H:%M')
+            log_dict[current_logdate] = []
+        match = re.search(r'^ethtool -S (.+):', line.strip())
+        if match:
+            current_interface = match.group(1)
+        match = re.search(r'^(%s): (\d+)' % (counters.replace(',', '|')), line.strip())
+        if match and current_interface in interfaces:
+            log_dict[current_logdate].append(LogEntry(current_interface, match.group(1), match.group(2)))
+
+
+def print_dates_and_arguments():
+    print('\nStart date set: %s' % (startdate.strftime('%Y-%m-%d %H:%M') if startdate != '' else 'None'))
+    print('End date set: %s' % (enddate.strftime('%Y-%m-%d %H:%M') if enddate != '' else 'None'))
+    print('Counters to parse: %s' % (args.counters))
+    print('Interface to parse: %s' % (interfaces))
+    print('\nOldest log entry found: ' + min(log_dict).strftime('%Y-%m-%d %H:%M'))
+    print('Newest log entry found: ' + max(log_dict).strftime('%Y-%m-%d %H:%M'))
+
+# Remove log entries outside specified date & time ranges
+def trim_log_dict(startdate, enddate):
+    if (startdate == '') != (enddate == ''):
+       if startdate == '':
+           startdate = min(log_dict)
+       if enddate == '':
+           enddate = max(log_dict)
+
+    for logentry in log_dict.copy():
+        if (startdate != '' and  logentry < startdate) or \
+           (enddate != '' and logentry > enddate) or \
+           (startdate == '' and logentry != min(log_dict) and logentry != max(log_dict)) or \
+           (enddate == '' and logentry != min(log_dict) and logentry != max(log_dict)):
+               del log_dict[logentry]
+
+# Prints log_dict. Hides the repetitve log entries for cleaner output.
+def print_log_dict():
+    prev_ethtool_entry_list = ''
+    prev_ethtool_entry_interface = ''
+    skipped_log_entries = 0
+    for log_entry_date, ethtool_entry_list in sorted(log_dict.items(), key=lambda t: t[0]):
+        if ethtool_entry_list == prev_ethtool_entry_list:
+            if log_entry_date == max(log_dict):
+                print('%s\n' % ('\n>>> Skipped: ' + str(skipped_log_entries) + ' repetetive entries\n' if skipped_log_entries != 0 else ''))
+            skipped_log_entries += 1
         else:
-            if 'ethtool -S ' + interface in line:
-                log_interface = True
-            elif 'ethtool -S' in line and interface not in line:
-                log_interface = False
-            if 'ethtool -S' not in line and (logdate != '') and log_interface == True:
-                for counter in counters_list:
-                    regex = r'^(' + counter + '): (\d+)'
-                    match = re.search(regex.decode('utf-8'), line.strip())
-                    if match:
-                        logdict[logdate][match.group(1)] = match.group(2)
+            if (prev_ethtool_entry_list == ''):
+                print('\n%s' % (log_entry_date))
+            elif (ethtool_entry_list != prev_ethtool_entry_list):
+                print('%s\n%s' % ('\n>>> Skipped: ' + str(skipped_log_entries) + ' repetetive entries\n' if skipped_log_entries != 0 else '', log_entry_date))
+                skipped_log_entries = 0
+            for ethtool_entry in ethtool_entry_list:
+                if (prev_ethtool_entry_interface == '') or (prev_ethtool_entry_interface != ethtool_entry.interface):
+                    print('\n   %s' % (ethtool_entry.interface))
+                print('      %s: %s' % (ethtool_entry.counter, ethtool_entry.value))
+                prev_ethtool_entry_interface = ethtool_entry.interface
+            prev_ethtool_entry_list = ethtool_entry_list
 
-def print_dates():
-    if startdate != '':
-        print('Start date set: ' + startdate.strftime('%Y-%m-%d %H:%M'))
-    else:
-        print('Start date set: ' + 'None')
-    if enddate != '':
-        print('End date set: ' + enddate.strftime('%Y-%m-%d %H:%M'))
-    else:
-        print('End date set: ' + 'None')
-    print('')
-
-
-def filter_logdict():
-    for logentry in logdict.copy():
-        if startdate != '' and  logentry < startdate:
-            del logdict[logentry]
-        elif enddate != '' and logentry > enddate:
-             del logdict[logentry]
-        elif startdate == '' and logentry != min(logdict) and logentry != max(logdict):
-            del logdict[logentry]
-        elif enddate == '' and logentry != min(logdict) and logentry != max(logdict):
-            del logdict[logentry]
-
-def print_logdict():
-    prev_logentry = {}
-    logentry_count = 0
-    omitted_count = 0
-    for logentry in OrderedDict(sorted(logdict.items(), key=lambda t: t[0])):
-        if logentry_count == 0 or logentry_count == len(logdict) - 1:
-            if omitted_count != 0:
-                print('.....The previous output repeated ' + str(omitted_count) + ' times.....')
-                print('')
-            print(logentry.strftime('%Y-%m-%d %H:%M'))
-            for counterkey, countervalue in logdict[logentry].items():
-                print '   %s: %s' % (counterkey, countervalue)
-            print('')
-        else:
-            if logdict[logentry] != prev_logentry:
-                if omitted_count != 0:
-                    print('.....The previous output repeated ' + str(omitted_count) + ' times.....')
-                    print('')
-                print(logentry.strftime('%Y-%m-%d %H:%M') + ' *')
-                for counterkey, countervalue in logdict[logentry].items():
-                    print '   %s: %s' % (counterkey, countervalue)
-                print('')
-                omitted_count = 0
-            else:
-                omitted_count += 1
-        logentry_count += 1
-        prev_logentry = logdict[logentry]
-
+# If -p & -f are not set > searching for log files in CWD; If -p is set > searching for log files in specified path
 if not args.file:
     total = 0
     for file in os.listdir(args.path):
@@ -127,68 +135,39 @@ if not args.file:
         print '\nImporting %s ethtool log files...' % (total)
         for file in os.listdir(args.path):
             if 'sf-ethtool-history' in file and 'gz' not in file:
-                print('Importing: ' + file)
                 with open(file) as f:
                     log = f.readlines()
-                    create_logdict(log)
+                    populate_log_dict(log)
+                print('Importing: ' + file)
                 count += 1
 
             if 'sf-ethtool-history' in file and 'gz' in file:
+                log = gzip.open(file, 'rb') .readlines()
+                populate_log_dict(log)
                 print('Importing: ' + file)
-                log = gzip.open(file, 'rb').readlines()
-                create_logdict(log)
                 count += 1
 
-        print('')
-        print('Oldest log entry found: ' + min(logdict).strftime('%Y-%m-%d %H:%M'))
-        print('Newest log entry found: ' + max(logdict).strftime('%Y-%m-%d %H:%M'))
-        print 'Counters to parse: %s' % (args.counters)
-        print 'Interface to parse: %s' % (interface)
-
-
-        print_dates()
-
-        if (startdate == '') != (enddate == ''):
-            if startdate == '':
-                startdate = min(logdict)
-            if enddate == '':
-                enddate = max(logdict)
-
-        filter_logdict()
-        print_logdict()
+        trim_log_dict(startdate, enddate)
+        print_dates_and_arguments()
+        print_log_dict()
     else:
-        print '\nParsing error: ethtool-history log files not found in %s\n' % (args.path)
+        print('\nParsing error: ethtool-history log files not found in {}\n'.format(args.path))
 
+# If -f is set > reading from a single log file
 if args.file and 'sf-ethtool-history' in args.file.name:
     file = os.path.realpath(args.file.name)
 
     if 'gz' not in file:
-        #print('Importing: ' + file)
         with open(file) as f:
             log = f.readlines()
-            create_logdict(log)
+            populate_log_dict(log)
 
     if 'gz' in file:
-        #print('Importing: ' + file)
         log = gzip.open(file, 'rb').readlines()
-        create_logdict(log)
+        populate_log_dict(log)
 
-    print('')
-    print('Oldest log entry found: ' + min(logdict).strftime('%Y-%m-%d %H:%M'))
-    print('Newest log entry found: ' + max(logdict).strftime('%Y-%m-%d %H:%M'))
-    print 'Counters to parse: %s' % (args.counters)
-    print 'Interface to parse: %s' % (interface)
-
-
-    print_dates()
-
-    if (startdate == '') != (enddate == ''):
-        if startdate == '':
-            startdate = min(logdict)
-        if enddate == '':
-            enddate = max(logdict)
-
-    filter_logdict()
-    print_logdict()
+    trim_log_dict(startdate, enddate)
+    print_dates_and_arguments()
+    print_log_dict()
 elif args.file and 'sf-ethtool-history' not in args.file.name:
     print('\nParsing error: Incorrect ethtool-history log file\n')
