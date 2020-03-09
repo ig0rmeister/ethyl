@@ -4,10 +4,10 @@
 __author__ = "Igor R"
 
 import argparse, re, gzip, os, sys, io
-from collections import OrderedDict
 from datetime import datetime
 from datetime import timedelta
 
+# Path validator for argparse
 def dir_path(path):
     if os.path.isdir(path):
         return path
@@ -24,7 +24,7 @@ parser.add_argument('-s', '--start', help='Parsing start date (e.g. 2020-02-25 0
 parser.add_argument('-e', '--end', help='Parsing end date (e.g. 2020-02-25 07:45 or 2020-02-25)', type=str)
 args = parser.parse_args()
 
-
+# Parsing the start date (with or without time of the day set)
 if args.start is not None:
     try:
         startdate = datetime.strptime(args.start, '%Y-%m-%d %H:%M')
@@ -33,6 +33,7 @@ if args.start is not None:
 else:
     startdate = ''
 
+# Parsing the end date (with or without time of the day set)
 if args.end is not None:
     try:
         enddate = datetime.strptime(args.end, '%Y-%m-%d %H:%M')
@@ -68,7 +69,7 @@ def printProgressBar (iteration, total, prefix = '', suffix = '', decimals = 1, 
     if iteration == total:
         print()
 
-
+# Add log entries for specified interfaces to the log_dict
 def populate_log_dict(log):
     for line_byte in log:
         try:
@@ -94,7 +95,7 @@ def print_dates_and_arguments():
     print('\nOldest log entry found: ' + min(log_dict).strftime('%Y-%m-%d %H:%M'))
     print('Newest log entry found: ' + max(log_dict).strftime('%Y-%m-%d %H:%M'))
 
-
+# Remove log entries outside specified date & time ranges
 def trim_log_dict(startdate, enddate):
     if (startdate == '') != (enddate == ''):
        if startdate == '':
@@ -109,7 +110,7 @@ def trim_log_dict(startdate, enddate):
            (enddate == '' and logentry != min(log_dict) and logentry != max(log_dict)):
                del log_dict[logentry]
 
-
+# Prints log_dict. Hides the repetitve log entries for cleaner output.
 def print_log_dict():
     prev_ethtool_entry_list = ''
     prev_ethtool_entry_interface = ''
@@ -132,7 +133,7 @@ def print_log_dict():
                 prev_ethtool_entry_interface = ethtool_entry.interface
             prev_ethtool_entry_list = ethtool_entry_list
 
-
+# If -p & -f are not set > searching for log files in CWD; If -p is set > searching for log files in specified path
 if not args.file:
     total = 0
     for file in os.listdir(args.path):
@@ -165,7 +166,7 @@ if not args.file:
     else:
         print('\nParsing error: ethtool-history log files not found in {}\n'.format(args.path))
 
-# If -f is set > reading from a file
+# If -f is set > reading from a single log file
 if args.file and 'sf-ethtool-history' in args.file.name:
     file = os.path.realpath(args.file.name)
 
